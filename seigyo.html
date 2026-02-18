@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>技術解説：PostgreSQL 17で学ぶ同時実行制御と隔離レベル</title>
     <style>
-        /* テキストを黒で統一 */
         body { 
             font-family: 'Helvetica Neue', Arial, sans-serif; 
             line-height: 1.8; 
@@ -18,7 +17,6 @@
         h2 { background: #f0f0f0; padding: 12px; border-left: 6px solid #000000; margin-top: 40px; color: #000000; }
         h3 { color: #000000; border-bottom: 2px solid #000000; margin-top: 30px; }
         
-        /* コードブロックの視認性向上（重なり防止） */
         pre { 
             background: #f8f9fa; 
             color: #000000; 
@@ -57,7 +55,7 @@
 </head>
 <body>
 
-<h1>PostgreSQL 17で体感する！トランザクション隔離レベルと同時実行制御</h1>
+<h1>トランザクション隔離レベルと同時実行制御</h1>
 
 <p>本記事では、RDBMSにおいて複数ユーザが同時にアクセスする際にデータの整合性を保つ仕組み「同時実行制御（Concurrency Control）」を解説します。講義で学んだ基礎を一歩進め、PostgreSQL 17のコンテナ環境を使って「不整合が起きる瞬間」とその対策を実験・検証します。</p>
 
@@ -235,7 +233,7 @@ INSERT INTO accounts VALUES (1, 'Alice', 1000), (2, 'Bob', 1000);
 </section>
 
 <hr>
-<p><strong>本コンテンツの作成時間：約13時間</strong></p>
+<p><strong>本コンテンツの作成時間：約12時間</strong></p>
 
 </body>
 </html>
