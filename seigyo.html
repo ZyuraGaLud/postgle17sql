@@ -82,9 +82,9 @@
 
     <div class="anomaly-box">
         <h3>② 非再現リード (Non-repeatable Read)</h3>
-        <p><strong>「読んだ値と違う」という現象です。</strong></p>
+        <p><strong>「さっき読んだ値と違う！」という現象です。</strong></p>
         
-        <p>Aさんが値を読み取った後、Bさんがその値を更新して確定させます。Aさんがもう一度同じ値を読むと、違う値が見えてしまいます。集計処理の最中にデータが変わると計算が合わなくなります。</p>
+        <p>Aさんが値を読み取った後、Bさんがその値を更新して確定させます。Aさんがもう一度同じ値を読むと、さっきと違う値が見えてしまいます。集計処理の最中にデータが変わると計算が合わなくなります。</p>
     </div>
 
     <div class="anomaly-box">
@@ -97,7 +97,7 @@
 
 <section>
     <h2>3. 実験準備：PostgreSQL 17 環境のセットアップ</h2>
-    <p>まずは PostgreSQL 17 コンテナへ接続し、以下のSQLを実行して実験用の「銀行口座テーブル」を作成してください。コードが表示されない場合は、ブラウザのリロードを試してください。</p>
+    <p>まずは PostgreSQL 17 コンテナへ接続し、以下のSQLを実行して実験用の「銀行口座テーブル」を作成してください。</p>
 <pre>
 -- テーブル作成
 CREATE TABLE accounts (
@@ -184,8 +184,58 @@ INSERT INTO accounts VALUES (1, 'Alice', 1000), (2, 'Bob', 1000);
     <p><strong>検証結果:</strong> 結果は <strong>1000</strong> のままです。トランザクション開始時点の「スナップショット」を維持しているため、他者の影響を受けません。</p>
 </section>
 
+<section>
+    <h2>6. 理解度確認：演習ドリル</h2>
+    <p>ここまでの学習内容を踏まえ、以下の問題に挑戦してみましょう。後半は実際に環境を操作して結果を確認する実戦形式です。</p>
+
+    <h3>【問題1】理論チェック：隔離レベルと異常現象</h3>
+    <p>PostgreSQL 17において、各隔離レベルで防ぐことができる（発生しない）現象の組み合わせとして正しいものを選びなさい。</p>
+    <ul>
+        <li>A. Read Committed レベルでは「非再現リード」を防ぐことができる。</li>
+        <li>B. Repeatable Read レベルでは「ダーティリード」と「非再現リード」を防ぐことができる。</li>
+        <li>C. PostgreSQLのデフォルト設定（Read Committed）では「ダーティリード」が発生する。</li>
+    </ul>
+
+    <h3>【問題2：SQLドリル】ロストアップデート（更新の紛失）の検証</h3>
+    <div class="experiment-box">
+        <p><strong>シナリオ：</strong> Session AとSession Bが、ほぼ同時に同じ口座に対して「100円加算する」という処理を行います。</p>
+        <p><strong>実行手順：</strong></p>
+        <ol>
+            <li>両方のセッションで <code>BEGIN;</code> を実行。</li>
+            <li><strong>Session A:</strong> <code>UPDATE accounts SET balance = balance + 100 WHERE id = 1;</code> を実行。</li>
+            <li><strong>Session B:</strong> <code>UPDATE accounts SET balance = balance + 100 WHERE id = 1;</code> を実行。</li>
+            <li>このとき、Session Bの画面はどうなっているか？また、その理由は？</li>
+            <li><strong>Session A:</strong> <code>COMMIT;</code> を実行。この後のSession Bの変化を観察せよ。</li>
+        </ol>
+    </div>
+
+    <h3>【問題3：応用】デッドロックを発生させる</h3>
+    <p>2つのセッションでお互いに相手がロックしている行を更新しようとしたとき、PostgreSQLはどのようなエラーを出すでしょうか。以下の順序で試してください。</p>
+    <p>1. Aがid=1を更新 → 2. Bがid=2を更新 → 3. Aがid=2を更新しようとする → 4. Bがid=1を更新しようとする</p>
+</section>
+
+<section>
+    <h2>7. 演習の解答例と解説</h2>
+    
+    <div class="note">
+        <h4>【問題1】の答え： B</h4>
+        <p>PostgreSQLでは <code>READ UNCOMMITTED</code> を指定しても <code>READ COMMITTED</code> として動作するため、どのレベルでもダーティリードは発生しません。非再現リードを防ぐには <code>REPEATABLE READ</code> 以上が必要です。</p>
+    </div>
+
+    <div class="note">
+        <h4>【問題2】の解説</h4>
+        <p><strong>挙動：</strong> Session Bは入力待ち（ブロック）状態になり、コマンドが完了しません。<br>
+        <strong>理由：</strong> 同じ行を同時に更新しようとすると、先行するトランザクションが終了するまで「行ロック」がかかるためです。Session Aが <code>COMMIT</code> した瞬間に、Bの更新が動き出します。</p>
+    </div>
+
+    <div class="note">
+        <h4>【問題3】の解説</h4>
+        <p>実行すると、PostgreSQLは <strong>"ERROR: deadlock detected"</strong> を出力します。これは、お互いが相手のロック解除を永遠に待ち続けてしまう状態を検知し、システムが停止するのを防ぐために一方のトランザクションを強制終了したことを示します。</p>
+    </div>
+</section>
+
 <hr>
-<p><strong>本コンテンツの作成時間：約12時間</strong></p>
+<p><strong>本コンテンツの作成時間：約13時間</strong></p>
 
 </body>
 </html>
