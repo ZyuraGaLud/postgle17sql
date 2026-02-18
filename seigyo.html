@@ -4,121 +4,110 @@
     <meta charset="UTF-8">
     <title>技術解説：PostgreSQL 17で学ぶ同時実行制御と隔離レベル</title>
     <style>
-        /* テキストを黒で統一 */
+        /* 全体設定：白背景・黒文字でシンプルに */
         body { 
-            font-family: 'Helvetica Neue', Arial, sans-serif; 
-            line-height: 1.8; 
-            color: #000000; 
-            max-width: 900px; 
+            font-family: sans-serif; 
+            line-height: 1.6; 
+            color: #000; 
+            max-width: 800px; 
             margin: 0 auto; 
-            padding: 30px; 
-            background-color: #ffffff;
+            padding: 20px;
+            background-color: #fff;
         }
-        h1 { border-bottom: 4px solid #000000; padding-bottom: 10px; color: #000000; }
-        h2 { background: #f0f0f0; padding: 12px; border-left: 6px solid #000000; margin-top: 40px; color: #000000; }
-        h3 { color: #000000; border-bottom: 2px solid #000000; margin-top: 30px; }
-        
-        /* コードブロックの視認性向上（重なり防止） */
+
+        /* 見出し：装飾を最小限に */
+        h1 { border-bottom: 2px solid #000; padding-bottom: 8px; }
+        h2 { border-bottom: 1px solid #000; margin-top: 40px; padding-bottom: 5px; }
+        h3 { margin-top: 30px; }
+
+        /* コードブロック：枠線と余白のみ */
         pre { 
-            background: #f8f9fa; 
-            color: #000000; 
-            padding: 20px; 
-            border: 1px solid #000000; 
-            border-radius: 5px; 
+            border: 1px solid #ccc; 
+            padding: 15px; 
             overflow-x: auto; 
-            line-height: 1.5;
+            background: #fff;
             margin: 20px 0;
-            display: block;
-            width: 100%;
         }
         code { 
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace; 
-            background: #eeeeee; 
-            padding: 2px 5px; 
-            border-radius: 3px; 
-        }
-        pre code { 
-            background: transparent; 
-            padding: 0; 
+            font-family: monospace;
+            font-size: 0.95em;
         }
 
-        .anomaly-box { border: 1px solid #000000; padding: 20px; border-radius: 8px; margin: 20px 0; background: #ffffff; }
-        .experiment-box { border: 2px solid #000000; padding: 20px; margin: 25px 0; border-radius: 8px; background: #ffffff; }
-        
-        .step-table { width: 100%; border-collapse: collapse; margin: 20px 0; color: #000000; }
-        .step-table th, .step-table td { border: 1px solid #000000; padding: 12px; text-align: left; }
-        .step-table th { background-color: #f0f0f0; }
+        /* テーブル：罫線のみのシンプルな構成 */
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 20px 0; 
+        }
+        th, td { 
+            border: 1px solid #000; 
+            padding: 8px; 
+            text-align: left; 
+        }
+        th { background-color: #f9f9f9; }
 
-        .session-a { color: #0000ff; font-weight: bold; } /* 識別のため青 */
-        .session-b { color: #cc6600; font-weight: bold; } /* 識別のため茶 */
-        
-        .note { border: 2px dashed #000000; padding: 15px; border-radius: 5px; margin: 20px 0; font-size: 0.95em; }
+        /* 実験用セッションの識別（色を抑えた太字） */
+        .session-a { color: #0055ff; font-weight: bold; }
+        .session-b { color: #aa5500; font-weight: bold; }
+
+        /* 補足説明の枠 */
+        .note { 
+            border: 1px solid #000; 
+            padding: 15px; 
+            margin: 20px 0; 
+        }
     </style>
 </head>
 <body>
 
 <h1>PostgreSQL 17で体感する！トランザクション隔離レベルと同時実行制御</h1>
 
-<p>本記事では、RDBMSにおいて複数ユーザが同時にアクセスする際にデータの整合性を保つ仕組み「同時実行制御（Concurrency Control）」を解説します。講義で学んだ基礎を一歩進め、PostgreSQL 17のコンテナ環境を使って「不整合が起きる瞬間」とその対策を実験・検証します。</p>
+<p>本記事では、データベースで複数のユーザーが同時にアクセスする際の整合性を保つ仕組み「同時実行制御」について解説します。PostgreSQL 17を用いて、不整合が起きる瞬間とその対策を実験・検証します。</p>
 
 <section>
     <h2>1. 同時実行制御が必要な理由</h2>
-    <p>データベースは、単一の処理を順番にこなすだけではありません。Webサービスや基幹システムでは、数千・数万のユーザーが <strong>同時に（並行して）</strong> データを読み書きします。ここで問題となるのが、<strong>「処理の干渉」</strong>です。</p>
+    <p>データベースには多くのユーザーが同時にアクセスします。何の制御もなければ、データの更新が重なり、矛盾が生じてしまいます。これを防ぎ、複数の処理を順番に実行したかのように制御するのが「隔離レベル」の役割です。</p>
     
-    <p>トランザクションには、一連の処理が「完全に終わるか、全く行われないか」を保証するACID特性がありますが、複数のトランザクションが重なり合う場合、その「中間状態」が互いに見えてしまうと、計算が狂ってしまいます。</p>
-
-    
-
-    <p>同時実行制御の目的は、並行して動いている複数の処理を、あたかも <strong>「一つずつ順番に実行した（直列実行した）」</strong> かのような正しい結果に導くことです。性能と整合性のトレードオフを調整するのが「隔離レベル」の役割です。</p>
 </section>
 
 <section>
-    <h2>2. 知っておくべき3つの異常現象 (Anomaly)</h2>
-    <div class="anomaly-box">
-        <h3>① ダーティリード (Dirty Read)</h3>
-        <p><strong>「確定していない嘘」を読んでしまう現象です。</strong></p>
-        <p>Aさんが書き込み、まだ確定（COMMIT）させていないデータを、Bさんが読み取ってしまうことを指します。Aさんが後で取り消し（ROLLBACK）た場合、Bさんは存在しないデータを基に処理をすることになります。</p>
-    </div>
+    <h2>2. 3つの異常現象 (Anomaly)</h2>
+    <p>同時実行制御が不十分な場合に発生する主な問題は以下の3つです。</p>
 
-    <div class="anomaly-box">
-        <h3>② 非再現リード (Non-repeatable Read)</h3>
-        <p><strong>「さっき読んだ値と違う！」という現象です。</strong></p>
-        
-        <p>Aさんが値を読み取った後、Bさんがその値を更新して確定させます。Aさんがもう一度同じ値を読むと、さっきと違う値が見えてしまいます。集計処理の最中にデータが変わると計算が合わなくなります。</p>
-    </div>
+    <h3>① ダーティリード (Dirty Read)</h3>
+    <p>確定していない（COMMIT前の）書き込み途中のデータを、他の人が読んでしまう現象です。※PostgreSQLでは発生しません。</p>
 
-    <div class="anomaly-box">
-        <h3>③ ファントムリード (Phantom Read)</h3>
-        <p><strong>「幽霊（Phantom）のように行が現れる」現象です。</strong></p>
-        
-        <p>Aさんが範囲検索をした後、Bさんが新しい行を追加して確定させます。Aさんが再度同じ条件で検索すると、1回目にはいなかったはずの「新しい行」が出現します。件数集計などに影響します。</p>
-    </div>
+    <h3>② 非再現リード (Non-repeatable Read)</h3>
+    <p>同じ処理の中で2回データを読んだとき、その間に他人が更新したせいで値が変わってしまう現象です。</p>
+    
+
+    <h3>③ ファントムリード (Phantom Read)</h3>
+    <p>同じ条件で検索を2回行ったとき、その間に他人が新しい行を追加したせいで、検索結果の件数が増えてしまう現象です。</p>
+    
 </section>
 
 <section>
-    <h2>3. 実験準備：PostgreSQL 17 環境のセットアップ</h2>
-    <p>まずは PostgreSQL 17 コンテナへ接続し、以下のSQLを実行して実験用の「銀行口座テーブル」を作成してください。コードが表示されない場合は、ブラウザのリロードを試してください。</p>
-<pre>
--- テーブル作成
-CREATE TABLE accounts (
+    <h2>3. 実験準備：PostgreSQL 17 セットアップ</h2>
+    <p>以下のSQLを実行して、実験用のテーブルとデータを作成してください。</p>
+<pre><code>CREATE TABLE accounts (
     id INT PRIMARY KEY,
     name VARCHAR(50),
     balance INT
 );
 
--- 初期データの挿入
-INSERT INTO accounts VALUES (1, 'Alice', 1000), (2, 'Bob', 1000);
-</pre>
+INSERT INTO accounts VALUES (1, 'Alice', 1000), (2, 'Bob', 1000);</code></pre>
+
     <div class="note">
-        <strong>実験方法:</strong> 2つのターミナルを立ち上げ、両方で <code>psql</code> を接続してください。青色を <strong>Session A</strong>、茶色を <strong>Session B</strong> として進めます。
+        <strong>実験方法：</strong>2つのターミナルを開き、それぞれ <code>psql</code> で接続してください。
+        これらを <strong><span class="session-a">Session A</span></strong> と <strong><span class="session-b">Session B</span></strong> として扱います。
     </div>
 </section>
 
 <section>
-    <h2>4. 実験1：Read Committed レベルの検証</h2>
-    <p>デフォルトの <code>READ COMMITTED</code> で、非再現リードが発生することを確認します。</p>
+    <h2>4. 実験1：Read Committed の挙動</h2>
+    <p>デフォルト設定で「非再現リード」が発生することを確認します。</p>
     
-    <table class="step-table">
+    <table>
         <tr>
             <th>Step</th>
             <th><span class="session-a">Session A</span></th>
@@ -145,15 +134,14 @@ INSERT INTO accounts VALUES (1, 'Alice', 1000), (2, 'Bob', 1000);
             <td>-</td>
         </tr>
     </table>
-
-    <p><strong>検証結果:</strong> Session Aの結果が <strong>800</strong> に変わりました。これが Read Committed の挙動です。</p>
+    <p><strong>検証結果：</strong>Session Aの2回目の読み取りでは、他人の確定した更新が反映され、値が <strong>800</strong> に変わりました。</p>
 </section>
 
 <section>
-    <h2>5. 実験2：Repeatable Read による解決</h2>
-    <p>隔離レベルを上げて、データが固定されることを確認します。</p>
+    <h2>5. 実験2：Repeatable Read の挙動</h2>
+    <p>隔離レベルを上げ、処理中の値が固定されることを確認します。</p>
 
-    <table class="step-table">
+    <table>
         <tr>
             <th>Step</th>
             <th><span class="session-a">Session A</span></th>
@@ -180,8 +168,7 @@ INSERT INTO accounts VALUES (1, 'Alice', 1000), (2, 'Bob', 1000);
             <td>-</td>
         </tr>
     </table>
-
-    <p><strong>検証結果:</strong> 結果は <strong>1000</strong> のままです。トランザクション開始時点の「スナップショット」を維持しているため、他者の影響を受けません。</p>
+    <p><strong>検証結果：</strong>Session Aの結果は <strong>1000</strong> のままです。トランザクション開始時のデータが守られています。</p>
 </section>
 
 <hr>
